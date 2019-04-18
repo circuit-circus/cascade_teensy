@@ -23,16 +23,15 @@
     pin 21: LED strip #7
     pin 5:  LED strip #8
 */
-#define FASTLED_ALLOW_INTERRUPTS 0 //If the amount of LEDs is above approx 75 the LEDs start flickering when interrupts are on.
-#include <WS2812Serial.h>
-#define USE_WS2812SERIAL
-#include <FastLED.h>
+#include <OctoWS2811.h>
+const int longestStrip = 84;
 
-#define COLOR_ORDER GRB
-#define CHIPSET     WS2812
-#define BRIGHTNESS  255
-//#define FRAMES_PER_SECOND 60
-#define TOTAL_LED_COUNT 84 //You have to manually add the total LED count here
+DMAMEM int displayMemory[longestStrip * 6];
+int drawingMemory[longestStrip * 6];
+
+const int config = WS2811_GRB | WS2811_800kHz;
+
+OctoWS2811 leds(longestStrip, displayMemory, drawingMemory, config);
 
 /*  Two dimensional array containing the physical arrangement of the LED.
     The first array contains one array for each circle. In Cascade will be 4.
@@ -40,32 +39,23 @@
 */
 
 const uint8_t numStrips = 1;
-const uint8_t stripLengths[] = {TOTAL_LED_COUNT};
+const uint8_t stripLengths[] = {84};
+const uint16_t totalLedCount = numStrips * longestStrip;
 
-CRGB leds[TOTAL_LED_COUNT];
-
-uint8_t currentDisplay; // Used to keep track of which circle we are receiving data for
 const uint8_t numSensors = 4;
 //uint16_t sensorData[numSensors];
 uint16_t sensorData[] = {4, 3, 2, 1};
 boolean firstContact = false;
-byte serialCount;
-boolean isReady = true;
-DMAMEM int ledData[TOTAL_LED_COUNT * 3 + numStrips];
 
 long lastUpdate;
+long lastSend;
+uint16_t sendInterval = 50;
 
 void setup() {
   delay(1000); // sanity delay
-  LEDS.addLeds<CHIPSET, 5, COLOR_ORDER>(leds, TOTAL_LED_COUNT).setCorrection( TypicalLEDStrip ); //The LED Pin is currently hard coded
-  //LEDS.addLeds<WS2812SERIAL,5,GRB>(leds,TOTAL_LED_COUNT);
-  LEDS.setBrightness( BRIGHTNESS );
-  Serial.begin(2000000);
-
-  for (uint8_t i = 0; i < TOTAL_LED_COUNT; i++) {
-    leds[i] = CRGB::Black;
-  }
-  LEDS.show();
+  Serial.setTimeout(1000);
+  leds.begin();
+  leds.show();
 }
 
 //This function can be changed to fit any kind and amount of sensors
@@ -90,8 +80,8 @@ void readSensors() {
 //    }
 //    serialCount++;
 //
-//    if (serialCount >= TOTAL_LED_COUNT * 3 + 1) {
-//      for (int i = 0; i < TOTAL_LED_COUNT; i++) {
+//    if (serialCount >= totalLedCount * 3 + 1) {
+//      for (int i = 0; i < totalLedCount; i++) {
 //        int index = i * 3; //Index adjusted to 3 colors and 1 display ID
 //        int r = ledData[index];
 //        int g = ledData[index + 1];
@@ -110,7 +100,7 @@ void readSensors() {
 //    Serial.write('#');
 //    if (millis() - lastUpdate > 1000) { //If the serial connection is dead. Reset everything.
 //      serialCount = 0;
-//      for (uint8_t i = 0; i < TOTAL_LED_COUNT; i++) {
+//      for (uint8_t i = 0; i < totalLedCount; i++) {
 //        leds[i] = CRGB::Black;
 //      }
 //      FastLED.show();
@@ -120,38 +110,55 @@ void readSensors() {
 
 //Reads all incoming bytes at once
 void loop() {
-  readSensors();
-  Serial.write('!');
-  for (int i = 0; i < numSensors; i++) {
-    Serial.write(sensorData[i]);
+  int startChar = Serial.read();
+
+  if (startChar = '!') {
+    int serialCount = Serial.readBytes((char *)drawingMemory, sizeof(drawingMemory));
+    //byte ledData[totalLedCount * 3];
+    //int serialCount = Serial.readBytes((char *)ledData, sizeof(ledData));
+
+    sensorData[0] = 0;
+    sensorData[1] = drawingMemory[5];
+    sensorData[2] = drawingMemory[6];
+    sensorData[3] = drawingMemory[7];
+
+//    if (serialCount == sizeof(ledData)) {
+//      for (int i = 0; i < totalLedCount; i++) {
+//        int index = i * 3; //Index adjusted to 3 colors and 1 display ID
+//        int r = ledData[index];
+//        int g = ledData[index + 1];
+//        int b = ledData[index + 2];
+//        leds.setPixel(i, r, g, b);
+//      }
+//      sensorData[0] = ledData[0];
+//      //Serial.write('#'); //Request new led data
+//      leds.show();
+//      lastUpdate = millis();
+//    }
+
+        if (serialCount == sizeof(drawingMemory)) {
+          sensorData[0] = serialCount;
+          //Serial.write('#'); //Request new led data
+          leds.show();
+          //serialCount = 0;
+          lastUpdate = millis();
+        }
   }
-  if (Serial.available() > 0) {
-    serialCount = Serial.readBytes((char *)ledData, TOTAL_LED_COUNT * 3 + numStrips); //Number of leds * 3 colors + 1 display ID
-    if (serialCount >= TOTAL_LED_COUNT * 3 + 1) {
-      for (int i = 0; i < TOTAL_LED_COUNT; i++) {
-        int index = i * 3; //Index adjusted to 3 colors and 1 display ID
-        int r = ledData[index];
-        int g = ledData[index + 1];
-        int b = ledData[index + 2];
-        leds[i] = CRGB(r, g, b);
-      }
-      Serial.write('#'); //Request new led data
-      LEDS.show();
-      sensorData[0] = serialCount;
-      serialCount = 0;
-      lastUpdate = millis();
+
+  if (millis() - lastSend > sendInterval) {
+    readSensors();
+    for (int i = 0; i < numSensors; i++) {
+      Serial.write(sensorData[i]);
     }
+    Serial.write('#');
   }
-  else {
-    delay(500);
-    Serial.write('&');
-    if (millis() - lastUpdate > 1000) { //If the serial connection is dead. Reset everything.
-      serialCount = 0;
-      for (uint8_t i = 0; i < TOTAL_LED_COUNT; i++) {
-        leds[i] = CRGB::Black;
-      }
-      LEDS.show();
+
+  if (millis() - lastUpdate > 1000) { //If the serial connection is dead. Reset everything.
+    for (uint8_t i = 0; i < totalLedCount; i++) {
+      leds.setPixel(i, 255, 0, 0);
     }
+    leds.show();
   }
+
 }
 
