@@ -44,23 +44,31 @@ const uint16_t totalLedCount = numStrips * longestStrip;
 
 const uint8_t numSensors = 4;
 //uint16_t sensorData[numSensors];
-uint8_t sensorData[] = {4, 3, 2, 1, '#'};
+
+uint8_t dataToSend[numSensors + 1];
+
 boolean firstContact = false;
 
 long lastUpdate;
 long lastSend;
-uint16_t sendInterval = 100;
+uint16_t sendInterval = 50;
+
+//Touch sensors
+uint16_t sensorData[numSensors] = {4, 3, 2, 1};
+const uint8_t touchPins[] = {22,23,18,19};
 
 void setup() {
   delay(1000); // sanity delay
   Serial.setTimeout(1000);
   leds.begin();
   leds.show();
+  dataToSend[numSensors] = '#'; //Adding a buffer character to the data that will be sent.
 }
 
 //This function can be changed to fit any kind and amount of sensors
 void readSensors() {
   //Read cap sensors
+  sensorData[0] = touchRead(touchPins[0]);
 }
 
 //Reads all incoming bytes at once
@@ -78,7 +86,11 @@ void loop() {
 
   if (millis() - lastSend > sendInterval) {
     readSensors();
-    Serial.write((uint8_t*) sensorData, sizeof(sensorData));
+    for (int i = 0; i < numSensors; i++){
+    dataToSend[i] = min(255,map(sensorData[i], 0, 10000, 0, 255));  
+    }
+    
+    Serial.write((uint8_t*) dataToSend, sizeof(dataToSend));
     lastSend = millis();
   }
 
