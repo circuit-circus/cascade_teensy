@@ -34,7 +34,7 @@ const int config = WS2811_800kHz;
 
 OctoWS2811 leds(longestStrip, displayMemory, drawingMemory, config);
 
-const uint8_t numSensors = 4;
+const uint8_t numSensors = 6;
 uint8_t dataToSend[numSensors + 1];
 
 long lastUpdate;
@@ -42,8 +42,8 @@ long lastSend;
 uint16_t sendInterval = 50;
 
 //Sensors
-uint16_t sensorData[numSensors] = {4, 3, 2, 1};
-const uint8_t touchPins[] = {22,23,18,19};
+uint16_t sensorData[numSensors];
+const uint8_t touchPins[] = {0,1,23,22,19,18};
 
 void setup() {
   delay(1000); // sanity delay
